@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import InvoiceForm from "../components/InvoiceForm";
 import InvoiceTable from "../components/InvoiceTable";
 import { generateReceipt } from "../utils/generateReceipt";
+import QRCode from "react-qr-code";
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
@@ -12,6 +13,8 @@ export default function Invoices() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState(null);
   const [editingItems, setEditingItems] = useState([]);
+  const [receiptInvoice, setReceiptInvoice] = useState(null);
+  const [receiptItems, setReceiptItems] = useState([]);
 
   useEffect(() => {
     fetchInvoices();
@@ -101,6 +104,90 @@ export default function Invoices() {
     }
 
     generateReceipt(invoice, items);
+  };
+
+  const viewReceipt = async (invoice) => {
+    setReceiptInvoice(invoice);
+
+    const { data, error: fetchError } = await supabase
+      .from("invoice_items")
+      .select("id, quantity, price, products(name)")
+      .eq("invoice_id", invoice.id);
+
+    if (fetchError) {
+      setError(fetchError.message);
+      return;
+    }
+
+    const items = (data || []).map((item) => ({
+      id: item.id,
+      product_name: item.products?.name || "Unknown",
+      quantity: item.quantity,
+      price: item.price,
+    }));
+
+    setReceiptItems(items);
+  };
+
+  const numberToWords = (num) => {
+    const ones = [
+      "zero",
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+      "seven",
+      "eight",
+      "nine",
+      "ten",
+      "eleven",
+      "twelve",
+      "thirteen",
+      "fourteen",
+      "fifteen",
+      "sixteen",
+      "seventeen",
+      "eighteen",
+      "nineteen",
+    ];
+    const tens = [
+      "",
+      "",
+      "twenty",
+      "thirty",
+      "forty",
+      "fifty",
+      "sixty",
+      "seventy",
+      "eighty",
+      "ninety",
+    ];
+
+    if (num < 20) return ones[num];
+    if (num < 100) {
+      const t = Math.floor(num / 10);
+      const r = num % 10;
+      return r ? `${tens[t]} ${ones[r]}` : tens[t];
+    }
+    if (num < 1000) {
+      const h = Math.floor(num / 100);
+      const r = num % 100;
+      return r ? `${ones[h]} hundred ${numberToWords(r)}` : `${ones[h]} hundred`;
+    }
+    if (num < 1000000) {
+      const k = Math.floor(num / 1000);
+      const r = num % 1000;
+      return r ? `${numberToWords(k)} thousand ${numberToWords(r)}` : `${numberToWords(k)} thousand`;
+    }
+    return `${num}`;
+  };
+
+  const amountInWords = (amount) => {
+    const whole = Math.floor(Number(amount || 0));
+    const words = numberToWords(whole);
+    return `${words} naira only`;
   };
 
   const editInvoice = async (invoice) => {
@@ -202,7 +289,7 @@ export default function Invoices() {
         invoices={invoices}
         onEdit={editInvoice}
         onDelete={handleDeleteInvoice}
-        onDownload={handleDownloadReceipt}
+        onViewReceipt={viewReceipt}
       />
 
       <InvoiceForm
@@ -313,6 +400,116 @@ export default function Invoices() {
               >
                 Save
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {receiptInvoice && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl shadow-xl p-6 relative">
+            {receiptInvoice.status === "paid" && (
+              <div className="absolute top-12 right-10 rotate-12 text-red-600 text-4xl font-bold opacity-70 border-4 border-red-600 px-4 py-2">
+                PAID
+              </div>
+            )}
+
+            <div className="bg-white print:p-0 print:shadow-none">
+              <div className="mx-auto w-full max-w-xl space-y-4 text-sm leading-relaxed">
+                <div className="text-center border-b pb-4 mb-4">
+                  <img
+                    src="/logo.png"
+                    alt="Company Logo"
+                    className="mx-auto h-16 mb-2"
+                  />
+                  <h1 className="text-2xl font-bold tracking-wide">DR APPLE MOBILE STORE</h1>
+                  <p>No 12 Computer Village, Ikeja, Lagos</p>
+                  <p>Phone: +234 800 000 0000</p>
+                  <p>Email: sales@drapple.com</p>
+                </div>
+
+                <div className="text-center mb-4">
+                  <h2 className="text-lg font-semibold tracking-widest">SALES RECEIPT</h2>
+                </div>
+
+                <div className="space-y-1">
+                  <p><strong>Invoice ID:</strong> {receiptInvoice.id}</p>
+                  <p><strong>Customer:</strong> {receiptInvoice.customer_name}</p>
+                  <p><strong>Phone:</strong> {receiptInvoice.customer_phone}</p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border">
+                    <thead>
+                      <tr className="bg-slate-50 text-left">
+                        <th className="border px-2 py-1">Product</th>
+                        <th className="border px-2 py-1">Qty</th>
+                        <th className="border px-2 py-1">Price</th>
+                        <th className="border px-2 py-1">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {receiptItems.map((item) => (
+                        <tr key={item.id}>
+                          <td className="border px-2 py-1">{item.product_name}</td>
+                          <td className="border px-2 py-1">x{item.quantity}</td>
+                          <td className="border px-2 py-1">
+                            ₦{Number(item.price || 0).toFixed(2)}
+                          </td>
+                          <td className="border px-2 py-1">
+                            ₦{(Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="font-semibold">
+                  Total: ₦{Number(receiptInvoice.total || 0).toFixed(2)}
+                </div>
+                <div className="text-xs text-slate-500">
+                  Amount in words: {amountInWords(receiptInvoice.total)}
+                </div>
+
+                <div className="flex justify-center mt-6">
+                  <QRCode
+                    value={`Invoice:${receiptInvoice.id}|Total:${receiptInvoice.total}`}
+                    size={80}
+                  />
+                </div>
+                <p className="text-center text-xs mt-2 text-gray-500">
+                  Scan to verify receipt
+                </p>
+
+                <div className="grid grid-cols-2 gap-10 mt-10 text-center text-sm">
+                  <div>
+                    <div className="border-t pt-2">Manager Signature</div>
+                  </div>
+                  <div>
+                    <div className="border-t pt-2">Customer Signature</div>
+                  </div>
+                </div>
+
+                <div className="text-center text-xs mt-6 text-gray-500">
+                  Thank you for your purchase.
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6">
+                  <button
+                    onClick={() => setReceiptInvoice(null)}
+                    className="px-4 py-2 border rounded"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => handleDownloadReceipt(receiptInvoice)}
+                    className="bg-blue-600 text-white px-4 py-2 rounded"
+                  >
+                    Download PDF
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

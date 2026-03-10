@@ -1,4 +1,4 @@
-export default function InvoiceTable({ invoices, onEdit, onDelete, onDownload }) {
+export default function InvoiceTable({ invoices, onEdit, onDelete, onViewReceipt }) {
   return (
     <div className="overflow-x-auto rounded-xl shadow">
       <table className="min-w-full bg-white">
@@ -47,10 +47,10 @@ export default function InvoiceTable({ invoices, onEdit, onDelete, onDownload })
                     </button>
                     <button
                       type="button"
-                      onClick={() => onDownload(invoice)}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      onClick={() => onViewReceipt(invoice)}
+                      className="text-blue-600 hover:underline text-xs font-medium"
                     >
-                      Download Receipt
+                      View Receipt
                     </button>
                     <button
                       type="button"
