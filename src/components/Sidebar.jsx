@@ -13,7 +13,7 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 z-20 h-screen w-64 bg-slate-900 text-slate-100">
       <div className="border-b border-slate-800 px-6 py-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">AI Sales Agent</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">DR APPLE ONLINE SHOP</p>
         <h1 className="mt-1 text-lg font-semibold">Admin Panel</h1>
       </div>
 

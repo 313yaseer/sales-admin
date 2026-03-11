@@ -9,9 +9,9 @@ export default function Dashboard() {
   return (
     <section>
       <div className="mb-6">
-        <h3 className="text-2xl font-semibold text-slate-900">Dashboard Overview</h3>
+        <h3 className="text-2xl font-semibold text-slate-900">DR APPLE</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Monitor your AI Sales Agent performance.
+          Monitor your AI Sales Agent performance
         </p>
       </div>
 

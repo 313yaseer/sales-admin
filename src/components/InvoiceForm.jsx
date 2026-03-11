@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { generateReceipt } from "../utils/generateReceipt";
 
 const emptyCustomer = {
   customer_name: "",
@@ -137,25 +136,6 @@ export default function InvoiceForm({ isOpen, onClose, onSaved }) {
       setLoading(false);
       return;
     }
-
-    const receiptInvoice = {
-      id: invoice.id,
-      customer_name: formData.customer_name.trim(),
-      customer_phone: formData.customer_phone.trim(),
-      status: formData.status,
-      created_at: new Date().toISOString(),
-    };
-
-    const receiptItems = itemsPayload.map((item) => {
-      const product = productMap.get(String(item.product_id));
-      return {
-        name: product?.name || "Unknown",
-        quantity: item.quantity,
-        price: item.price,
-      };
-    });
-
-    generateReceipt(receiptInvoice, receiptItems);
 
     setLoading(false);
     onSaved();

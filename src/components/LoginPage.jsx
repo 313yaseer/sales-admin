@@ -1,29 +1,13 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
 import { supabase } from "../lib/supabase";
 
 export default function LoginPage() {
-  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    const checkSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        navigate("/admin", { replace: true });
-      }
-    };
-
-    checkSession();
-  }, [navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -42,13 +26,12 @@ export default function LoginPage() {
     });
 
     if (signInError) {
-      setError("Invalid email or password.");
+      setError(signInError.message);
       setLoading(false);
       return;
     }
 
     setLoading(false);
-    navigate("/admin", { replace: true });
   };
 
   return (

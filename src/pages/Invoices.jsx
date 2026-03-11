@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import InvoiceForm from "../components/InvoiceForm";
 import InvoiceTable from "../components/InvoiceTable";
-import { generateReceipt } from "../utils/generateReceipt";
 import QRCode from "react-qr-code";
+import { generateReceipt } from "../utils/generateReceipt";
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
@@ -15,6 +15,9 @@ export default function Invoices() {
   const [editingItems, setEditingItems] = useState([]);
   const [receiptInvoice, setReceiptInvoice] = useState(null);
   const [receiptItems, setReceiptItems] = useState([]);
+  const [downloading, setDownloading] = useState(false);
+  const [receiptReady, setReceiptReady] = useState(false);
+  const receiptRef = useRef(null);
 
   useEffect(() => {
     fetchInvoices();
@@ -96,17 +99,56 @@ export default function Invoices() {
     await fetchInvoices();
   };
 
-  const handleDownloadReceipt = async (invoice) => {
-    const items = await fetchInvoiceItems(invoice.id);
-    if (items.length === 0) {
-      setError("No invoice items found for this invoice.");
+  const handleDownloadReceipt = async () => {
+    if (downloading) {
       return;
     }
+    try {
+      if (!receiptRef || !receiptRef.current || !receiptInvoice) {
+        console.error("Receipt element not found");
+        setError("Receipt preview not ready");
+        return;
+      }
 
-    generateReceipt(invoice, items);
+      setDownloading(true);
+      setError("");
+      const itemsForPdf = receiptItems.map((item) => ({
+        name: item.product_name || "Unknown",
+        quantity: item.quantity,
+        price: item.price,
+      }));
+
+      let logoDataUrl = "";
+      let qrDataUrl = "";
+      try {
+        logoDataUrl = await getImageDataUrl(
+          receiptRef.current.querySelector("img")
+        );
+      } catch (err) {
+        console.warn("Logo capture failed:", err);
+      }
+      try {
+        qrDataUrl = await getQrPngDataUrl(
+          receiptRef.current.querySelector("svg")
+        );
+      } catch (err) {
+        console.warn("QR capture failed:", err);
+      }
+
+      await generateReceipt(receiptInvoice, itemsForPdf, {
+        logoDataUrl: logoDataUrl || "",
+        qrDataUrl: qrDataUrl || "",
+      });
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      setError("Failed to generate receipt PDF");
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const viewReceipt = async (invoice) => {
+    setError("");
     setReceiptInvoice(invoice);
 
     const { data, error: fetchError } = await supabase
@@ -128,6 +170,19 @@ export default function Invoices() {
 
     setReceiptItems(items);
   };
+
+  useEffect(() => {
+    if (!receiptInvoice) {
+      setReceiptReady(false);
+      return;
+    }
+
+    const raf = requestAnimationFrame(() => {
+      setReceiptReady(Boolean(receiptRef.current));
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [receiptInvoice, receiptItems.length]);
 
   const numberToWords = (num) => {
     const ones = [
@@ -189,6 +244,71 @@ export default function Invoices() {
     const words = numberToWords(whole);
     return `${words} naira only`;
   };
+
+  const getImageDataUrl = (imgElement) =>
+    new Promise((resolve) => {
+      if (!imgElement) {
+        resolve("");
+        return;
+      }
+
+      const loadAndConvert = () => {
+        const canvas = document.createElement("canvas");
+        const width = imgElement.naturalWidth || imgElement.width || 80;
+        const height = imgElement.naturalHeight || imgElement.height || 80;
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve("");
+          return;
+        }
+        ctx.drawImage(imgElement, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+
+      if (imgElement.complete) {
+        loadAndConvert();
+      } else {
+        imgElement.onload = loadAndConvert;
+        imgElement.onerror = () => resolve("");
+      }
+    });
+
+  const getQrPngDataUrl = (svgElement) =>
+    new Promise((resolve) => {
+      if (!svgElement) {
+        resolve("");
+        return;
+      }
+
+      try {
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svgElement);
+        const svgDataUrl = `data:image/svg+xml;base64,${window.btoa(
+          unescape(encodeURIComponent(svgString))
+        )}`;
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const width = svgElement.clientWidth || 80;
+          const height = svgElement.clientHeight || 80;
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve("");
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = () => resolve("");
+        img.src = svgDataUrl;
+      } catch (err) {
+        resolve("");
+      }
+    });
 
   const editInvoice = async (invoice) => {
     setEditingInvoice(invoice);
@@ -415,7 +535,11 @@ export default function Invoices() {
             )}
 
             <div className="bg-white print:p-0 print:shadow-none">
-              <div className="mx-auto w-full max-w-xl space-y-4 text-sm leading-relaxed">
+              <div
+                ref={receiptRef}
+                id="receipt-preview"
+                className="mx-auto w-full max-w-xl space-y-4 text-sm leading-relaxed"
+              >
                 <div className="text-center border-b pb-4 mb-4">
                   <img
                     src="/logo.png"
@@ -423,8 +547,8 @@ export default function Invoices() {
                     className="mx-auto h-16 mb-2"
                   />
                   <h1 className="text-2xl font-bold tracking-wide">DR APPLE MOBILE STORE</h1>
-                  <p>No 12 Computer Village, Ikeja, Lagos</p>
-                  <p>Phone: +234 800 000 0000</p>
+                  <p>No 12 Rahama Plaza, Farmcenter Kano</p>
+                  <p>Phone: +234 813 784 3328</p>
                   <p>Email: sales@drapple.com</p>
                 </div>
 
@@ -497,16 +621,19 @@ export default function Invoices() {
 
                 <div className="flex justify-end gap-3 mt-6">
                   <button
+                    type="button"
                     onClick={() => setReceiptInvoice(null)}
                     className="px-4 py-2 border rounded"
                   >
                     Close
                   </button>
                   <button
-                    onClick={() => handleDownloadReceipt(receiptInvoice)}
+                    type="button"
+                    onClick={handleDownloadReceipt}
                     className="bg-blue-600 text-white px-4 py-2 rounded"
+                    disabled={downloading || !receiptReady}
                   >
-                    Download PDF
+                    {downloading ? "Generating..." : "Download PDF"}
                   </button>
                 </div>
               </div>
