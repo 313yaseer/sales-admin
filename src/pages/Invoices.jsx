@@ -4,24 +4,26 @@ import InvoiceForm from "../components/InvoiceForm";
 import InvoiceTable from "../components/InvoiceTable";
 import QRCode from "react-qr-code";
 import { generateReceipt } from "../utils/generateReceipt";
+import { Filter, Search, X } from "lucide-react";
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
-  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState(null);
-  const [editingItems, setEditingItems] = useState([]);
+  const [editingLines, setEditingLines] = useState([]);
   const [receiptInvoice, setReceiptInvoice] = useState(null);
   const [receiptItems, setReceiptItems] = useState([]);
   const [downloading, setDownloading] = useState(false);
   const [receiptReady, setReceiptReady] = useState(false);
   const receiptRef = useRef(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
 
   useEffect(() => {
     fetchInvoices();
-    fetchProducts();
   }, []);
 
   const fetchInvoices = async () => {
@@ -41,62 +43,6 @@ export default function Invoices() {
 
     setInvoices(data || []);
     setLoading(false);
-  };
-
-  const fetchInvoiceItems = async (invoiceId) => {
-    const { data, error: fetchError } = await supabase
-      .from("invoice_items")
-      .select("quantity, price, products(name)")
-      .eq("invoice_id", invoiceId);
-
-    if (fetchError) {
-      setError(fetchError.message);
-      return [];
-    }
-
-    return (data || []).map((item) => ({
-      name: item.products?.name || "Unknown",
-      quantity: item.quantity,
-      price: item.price,
-    }));
-  };
-
-  const fetchProducts = async () => {
-    const { data, error: fetchError } = await supabase
-      .from("products")
-      .select("id, name, price")
-      .order("name", { ascending: true });
-
-    if (fetchError) {
-      setError(fetchError.message);
-      return;
-    }
-
-    setProducts(data || []);
-  };
-
-  const handleDeleteInvoice = async (invoiceId) => {
-    const { error: itemsError } = await supabase
-      .from("invoice_items")
-      .delete()
-      .eq("invoice_id", invoiceId);
-
-    if (itemsError) {
-      setError(itemsError.message);
-      return;
-    }
-
-    const { error: invoiceError } = await supabase
-      .from("invoices")
-      .delete()
-      .eq("id", invoiceId);
-
-    if (invoiceError) {
-      setError(invoiceError.message);
-      return;
-    }
-
-    await fetchInvoices();
   };
 
   const handleDownloadReceipt = async () => {
@@ -169,6 +115,12 @@ export default function Invoices() {
     }));
 
     setReceiptItems(items);
+  };
+
+  const handleDownloadFromRow = async (invoice) => {
+    await viewReceipt(invoice);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await handleDownloadReceipt();
   };
 
   useEffect(() => {
@@ -310,12 +262,13 @@ export default function Invoices() {
       }
     });
 
-  const editInvoice = async (invoice) => {
+  const handleEditInvoice = async (invoice) => {
+    setError("");
     setEditingInvoice(invoice);
 
     const { data, error: fetchError } = await supabase
       .from("invoice_items")
-      .select("id, product_id, quantity, price")
+      .select("product_id, quantity")
       .eq("invoice_id", invoice.id);
 
     if (fetchError) {
@@ -323,58 +276,44 @@ export default function Invoices() {
       return;
     }
 
-    setEditingItems(data || []);
+    const lines = (data || []).map((item) => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+    }));
+
+    setEditingLines(lines.length ? lines : [{ product_id: "", quantity: 1 }]);
+    setShowInvoiceForm(true);
   };
 
-  const updateItemField = (index, field, value) => {
-    setEditingItems((prev) =>
-      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
-    );
-  };
+  const filteredInvoices = invoices.filter((invoice) => {
+    const query = searchTerm.trim().toLowerCase();
+    const matchesSearch =
+      !query ||
+      invoice.customer_name?.toLowerCase().includes(query) ||
+      String(invoice.id || "").toLowerCase().includes(query);
 
-  const updateInvoice = async () => {
-    if (!editingInvoice) return;
+    const matchesStatus =
+      statusFilter === "all" || invoice.status === statusFilter;
 
-    const total = editingItems.reduce(
-      (sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0),
-      0
-    );
-
-    const { error: updateError } = await supabase
-      .from("invoices")
-      .update({
-        customer_name: editingInvoice.customer_name,
-        customer_phone: editingInvoice.customer_phone,
-        status: editingInvoice.status,
-        total,
-      })
-      .eq("id", editingInvoice.id);
-
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-
-    for (const item of editingItems) {
-      const { error: itemError } = await supabase
-        .from("invoice_items")
-        .update({
-          product_id: item.product_id,
-          quantity: Number(item.quantity || 0),
-          price: Number(item.price || 0),
-        })
-        .eq("id", item.id);
-
-      if (itemError) {
-        setError(itemError.message);
-        return;
+    let matchesDate = true;
+    if (dateFilter !== "all" && invoice.created_at) {
+      const createdAt = new Date(invoice.created_at);
+      const now = new Date();
+      if (dateFilter === "today") {
+        matchesDate = createdAt.toDateString() === now.toDateString();
+      } else if (dateFilter === "week") {
+        const weekAgo = new Date();
+        weekAgo.setDate(now.getDate() - 7);
+        matchesDate = createdAt >= weekAgo;
+      } else if (dateFilter === "month") {
+        const monthAgo = new Date();
+        monthAgo.setMonth(now.getMonth() - 1);
+        matchesDate = createdAt >= monthAgo;
       }
     }
 
-    setEditingInvoice(null);
-    setEditingItems([]);
-    await fetchInvoices();
-  };
+    return matchesSearch && matchesStatus && matchesDate;
+  });
 
   return (
     <section className="space-y-6">
@@ -386,7 +325,11 @@ export default function Invoices() {
 
         <button
           type="button"
-          onClick={() => setIsFormOpen(true)}
+          onClick={() => {
+            setEditingInvoice(null);
+            setEditingLines([]);
+            setShowInvoiceForm(true);
+          }}
           className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
         >
           Create Invoice
@@ -405,125 +348,79 @@ export default function Invoices() {
         </p>
       )}
 
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl shadow">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+          <Filter size={16} />
+          Filters
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-64">
+            <Search
+              className="absolute left-3 top-2.5 text-gray-400"
+              size={16}
+            />
+            <input
+              type="text"
+              placeholder="Search invoice or customer..."
+              className="pl-9 pr-3 py-2 border rounded-lg w-full"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <select
+            className="border rounded-lg px-3 py-2"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="all">All Status</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Pending</option>
+          </select>
+
+          <select
+            className="border rounded-lg px-3 py-2"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+          >
+            <option value="all">All Dates</option>
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSearchTerm("");
+              setStatusFilter("all");
+              setDateFilter("all");
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200"
+          >
+            <X size={16} /> Reset
+          </button>
+        </div>
+      </div>
+
       <InvoiceTable
-        invoices={invoices}
-        onEdit={editInvoice}
-        onDelete={handleDeleteInvoice}
+        invoices={filteredInvoices}
+        onEdit={handleEditInvoice}
         onViewReceipt={viewReceipt}
+        onDownloadReceipt={handleDownloadFromRow}
       />
 
       <InvoiceForm
-        isOpen={isFormOpen}
-        onClose={() => setIsFormOpen(false)}
+        isOpen={showInvoiceForm}
+        invoice={editingInvoice}
+        initialItems={editingLines}
+        onClose={() => {
+          setShowInvoiceForm(false);
+          setEditingInvoice(null);
+          setEditingLines([]);
+        }}
         onSaved={fetchInvoices}
       />
-
-      {editingInvoice && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg w-full max-w-2xl">
-            <h2 className="text-lg font-semibold mb-4">Edit Invoice</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm mb-1">Customer Name</label>
-                <input
-                  value={editingInvoice.customer_name}
-                  onChange={(e) =>
-                    setEditingInvoice({
-                      ...editingInvoice,
-                      customer_name: e.target.value,
-                    })
-                  }
-                  className="w-full border rounded px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Customer Phone</label>
-                <input
-                  value={editingInvoice.customer_phone}
-                  onChange={(e) =>
-                    setEditingInvoice({
-                      ...editingInvoice,
-                      customer_phone: e.target.value,
-                    })
-                  }
-                  className="w-full border rounded px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Status</label>
-                <select
-                  value={editingInvoice.status}
-                  onChange={(e) =>
-                    setEditingInvoice({
-                      ...editingInvoice,
-                      status: e.target.value,
-                    })
-                  }
-                  className="w-full border rounded px-3 py-2"
-                >
-                  <option value="pending">Pending</option>
-                  <option value="paid">Paid</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-700">Items</h3>
-              {editingItems.map((item, index) => (
-                <div key={item.id} className="grid gap-3 sm:grid-cols-[1fr_120px_120px]">
-                  <select
-                    value={item.product_id}
-                    onChange={(e) =>
-                      updateItemField(index, "product_id", Number(e.target.value))
-                    }
-                    className="w-full border rounded px-3 py-2"
-                  >
-                    <option value="">Select product</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    min="1"
-                    value={item.quantity}
-                    onChange={(e) => updateItemField(index, "quantity", e.target.value)}
-                    className="w-full border rounded px-3 py-2"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={item.price}
-                    onChange={(e) => updateItemField(index, "price", e.target.value)}
-                    className="w-full border rounded px-3 py-2"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setEditingInvoice(null);
-                  setEditingItems([]);
-                }}
-                className="bg-gray-200 px-4 py-2 rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={updateInvoice}
-                className="bg-blue-600 text-white px-4 py-2 rounded"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {receiptInvoice && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">

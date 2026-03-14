@@ -11,8 +11,9 @@ export default function ProtectedRoute({ children }) {
       const {
         data: { session },
       } = await supabase.auth.getSession();
+      const { data: userData } = await supabase.auth.getUser();
 
-      setSession(session);
+      setSession(userData?.user ? session : null);
       setLoading(false);
     };
 
@@ -21,7 +22,7 @@ export default function ProtectedRoute({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
+      setSession(currentSession?.user ? currentSession : null);
       setLoading(false);
     });
 

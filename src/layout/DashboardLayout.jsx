@@ -15,11 +15,11 @@ export default function DashboardLayout() {
   const title = pageTitles[pathname] ?? "Admin Panel";
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="flex h-screen bg-gray-100">
       <Sidebar />
-      <div className="ml-64 flex min-h-screen flex-col">
+      <div className="flex-1 flex flex-col ml-64">
         <Navbar title={title} />
-        <main className="flex-1 p-6">
+        <main className="p-6 overflow-y-auto">
           <Outlet />
         </main>
       </div>

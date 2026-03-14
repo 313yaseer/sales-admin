@@ -1,4 +1,25 @@
-export default function InvoiceTable({ invoices, onEdit, onDelete, onViewReceipt }) {
+import { useEffect, useState } from "react";
+import { Download, Eye, MoreVertical, Pencil } from "lucide-react";
+
+export default function InvoiceTable({
+  invoices,
+  onEdit,
+  onViewReceipt,
+  onDownloadReceipt,
+}) {
+  const [openDropdown, setOpenDropdown] = useState(null);
+
+  useEffect(() => {
+    const handleClick = (event) => {
+      if (!event.target.closest("[data-invoice-menu]")) {
+        setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   return (
     <div className="overflow-x-auto rounded-xl shadow">
       <table className="min-w-full bg-white">
@@ -37,28 +58,59 @@ export default function InvoiceTable({ invoices, onEdit, onDelete, onViewReceipt
                   {invoice.created_at ? new Date(invoice.created_at).toLocaleDateString() : "-"}
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div
+                    className="relative flex justify-end"
+                    data-invoice-menu={invoice.id}
+                  >
                     <button
                       type="button"
-                      onClick={() => onEdit(invoice)}
-                      className="text-blue-600 hover:underline text-xs font-medium"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setOpenDropdown(openDropdown === invoice.id ? null : invoice.id);
+                      }}
+                      className="rounded-lg p-2 hover:bg-slate-100"
+                      aria-label="Open actions"
                     >
-                      Edit
+                      <MoreVertical size={18} />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onViewReceipt(invoice)}
-                      className="text-blue-600 hover:underline text-xs font-medium"
-                    >
-                      View Receipt
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDelete(invoice.id)}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100"
-                    >
-                      Delete
-                    </button>
+
+                    {openDropdown === invoice.id && (
+                      <div className="absolute right-0 mt-2 w-44 rounded-lg border border-slate-200 bg-white shadow-lg z-50">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onViewReceipt(invoice);
+                            setOpenDropdown(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        >
+                          <Eye size={16} />
+                          View Receipt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDownloadReceipt?.(invoice);
+                            setOpenDropdown(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        >
+                          <Download size={16} />
+                          Download Receipt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onEdit(invoice);
+                            setOpenDropdown(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        >
+                          <Pencil size={16} />
+                          Edit Invoice
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </td>
               </tr>

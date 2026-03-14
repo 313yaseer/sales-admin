@@ -148,7 +148,7 @@ export const generateReceipt = (invoice, items, assets = {}) => {
   const finalY = doc.lastAutoTable?.finalY || cursorY + 16;
   doc.setFontSize(10);
   doc.setFont("helvetica", "bold");
-  doc.text(`Total: ₦${total.toFixed(2)}`, 14, finalY + 6);
+  doc.text(`Total: NGN ${total.toFixed(2)}`, 14, finalY + 6);
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.text(`Amount in words: ${amountInWords(total)}`, 14, finalY + 11);

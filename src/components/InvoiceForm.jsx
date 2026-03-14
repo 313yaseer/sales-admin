@@ -12,7 +12,13 @@ const emptyLine = {
   quantity: 1,
 };
 
-export default function InvoiceForm({ isOpen, onClose, onSaved }) {
+export default function InvoiceForm({
+  isOpen,
+  onClose,
+  onSaved,
+  invoice = null,
+  initialItems = [],
+}) {
   const [formData, setFormData] = useState(emptyCustomer);
   const [lines, setLines] = useState([emptyLine]);
   const [products, setProducts] = useState([]);
@@ -41,11 +47,26 @@ export default function InvoiceForm({ isOpen, onClose, onSaved }) {
 
   useEffect(() => {
     if (!isOpen) return;
-    setFormData(emptyCustomer);
-    setLines([emptyLine]);
+    if (invoice) {
+      setFormData({
+        customer_name: invoice.customer_name || "",
+        customer_phone: invoice.customer_phone || "",
+        status: invoice.status || "pending",
+      });
+      const normalizedLines = initialItems.length
+        ? initialItems.map((item) => ({
+            product_id: item.product_id || "",
+            quantity: item.quantity || 1,
+          }))
+        : [emptyLine];
+      setLines(normalizedLines);
+    } else {
+      setFormData(emptyCustomer);
+      setLines([emptyLine]);
+    }
     setError("");
     setLoading(false);
-  }, [isOpen]);
+  }, [isOpen, invoice, initialItems]);
 
   const productMap = useMemo(() => {
     const map = new Map();
@@ -98,23 +119,55 @@ export default function InvoiceForm({ isOpen, onClose, onSaved }) {
     setLoading(true);
     setError("");
 
-    const { data: invoice, error: invoiceError } = await supabase
-      .from("invoices")
-      .insert([
-        {
+    let invoiceId = invoice?.id;
+    if (invoiceId) {
+      const { error: updateError } = await supabase
+        .from("invoices")
+        .update({
           customer_name: formData.customer_name.trim(),
           customer_phone: formData.customer_phone.trim(),
           total,
           status: formData.status,
-        },
-      ])
-      .select("id")
-      .single();
+        })
+        .eq("id", invoiceId);
 
-    if (invoiceError) {
-      setError(invoiceError.message);
-      setLoading(false);
-      return;
+      if (updateError) {
+        setError(updateError.message);
+        setLoading(false);
+        return;
+      }
+
+      const { error: deleteError } = await supabase
+        .from("invoice_items")
+        .delete()
+        .eq("invoice_id", invoiceId);
+
+      if (deleteError) {
+        setError(deleteError.message);
+        setLoading(false);
+        return;
+      }
+    } else {
+      const { data: createdInvoice, error: invoiceError } = await supabase
+        .from("invoices")
+        .insert([
+          {
+            customer_name: formData.customer_name.trim(),
+            customer_phone: formData.customer_phone.trim(),
+            total,
+            status: formData.status,
+          },
+        ])
+        .select("id")
+        .single();
+
+      if (invoiceError) {
+        setError(invoiceError.message);
+        setLoading(false);
+        return;
+      }
+
+      invoiceId = createdInvoice.id;
     }
 
     const itemsPayload = validLines.map((line) => {
@@ -122,7 +175,7 @@ export default function InvoiceForm({ isOpen, onClose, onSaved }) {
       const price = product ? Number(product.price || 0) : 0;
       const qty = Number(line.quantity || 0);
       return {
-        invoice_id: invoice.id,
+        invoice_id: invoiceId,
         product_id: Number(line.product_id),
         quantity: qty,
         price,
@@ -149,7 +202,9 @@ export default function InvoiceForm({ isOpen, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8">
       <div className="w-full max-w-3xl rounded-xl bg-white p-6 shadow-xl">
-        <h3 className="text-xl font-semibold text-slate-900">Create Invoice</h3>
+        <h3 className="text-xl font-semibold text-slate-900">
+          {invoice ? "Edit Invoice" : "Create Invoice"}
+        </h3>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-5">
           {error && (
