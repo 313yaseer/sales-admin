@@ -7,6 +7,7 @@ import ProtectedRoute from "./lib/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
 import Categories from "./pages/Categories";
+import Customers from "./pages/Customers";
 import Invoices from "./pages/Invoices";
 import Settings from "./pages/Settings";
 
@@ -58,6 +59,7 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="products" element={<Products />} />
           <Route path="categories" element={<Categories />} />
+          <Route path="customers" element={<Customers />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="settings" element={<Settings />} />
         </Route>
