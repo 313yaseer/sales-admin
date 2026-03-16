@@ -48,7 +48,7 @@ export default function InvoiceTable({
                 <td className="px-4 py-3 font-medium text-slate-900">#{invoice.id}</td>
                 <td className="px-4 py-3">{invoice.customer_name}</td>
                 <td className="px-4 py-3">{invoice.customer_phone}</td>
-                <td className="px-4 py-3">${Number(invoice.total || 0).toFixed(2)}</td>
+                <td className="px-4 py-3">{Number(invoice.total || 0).toFixed(2)} NGN</td>
                 <td className="px-4 py-3">
                   <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
                     {invoice.status || "pending"}

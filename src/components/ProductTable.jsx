@@ -1,7 +1,7 @@
 const truncate = (value = "", max = 50) => {
   const text = String(value || "");
   if (text.length <= max) return text || "-";
-  return `${text.slice(0, max)}...`;
+  return `NGN{text.slice(0, max)}...`;
 };
 
 export default function ProductTable({ products, onEdit, onDelete }) {
@@ -51,7 +51,7 @@ export default function ProductTable({ products, onEdit, onDelete }) {
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-900">{product.name}</td>
                   <td className="px-4 py-3">{product.brand}</td>
-                  <td className="px-4 py-3">${Number(product.price || 0).toFixed(2)}</td>
+                  <td className="px-4 py-3">{Number(product.price || 0).toFixed(2)} NGN</td>
                   <td className="px-4 py-3">{product.stock}</td>
                   <td className="px-4 py-3 text-slate-600">{truncate(product.specs)}</td>
                   <td className="px-4 py-3">

@@ -1,73 +1,49 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-const emptyForm = {
-  name: "",
-  brand: "",
-  category_id: "",
-  price: "",
-  stock: "",
-  description: "",
-  specs: "",
-  features: "",
-  manuals_url: "",
-  images_urls: [],
-};
+export default function ProductForm({ onClose, onSave, initialProduct = null, fetchProducts }) {
+  const emptyForm = {
+    name: "",
+    brand: "",
+    category_id: "",
+    price: "",
+    stock: "",
+    description: "",
+    specs: "",
+    features: "",
+  };
 
-export default function ProductForm({
-  onClose,
-  onSave,
-  initialProduct = null,
-}) {
   const [formData, setFormData] = useState(emptyForm);
   const [categories, setCategories] = useState([]);
+  const [mediaFiles, setMediaFiles] = useState([]);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [uploadingImages, setUploadingImages] = useState(false);
-  const [uploadingManual, setUploadingManual] = useState(false);
 
   useEffect(() => {
     const loadCategories = async () => {
-      const { data, error: fetchError } = await supabase
-        .from("categories")
-        .select("id, name")
-        .order("name", { ascending: true });
-
-      if (fetchError) {
-        setError(fetchError.message);
-        return;
-      }
-
-      setCategories(data || []);
+      const { data, error } = await supabase.from("categories").select("id,name").order("name");
+      if (error) setError(error.message);
+      else setCategories(data || []);
     };
-
     loadCategories();
   }, []);
 
   useEffect(() => {
     if (initialProduct) {
       setFormData({
+        ...emptyForm,
         name: initialProduct.name || "",
         brand: initialProduct.brand || "",
-        category_id: initialProduct.category_id ?? "",
-        price: initialProduct.price ?? "",
-        stock: initialProduct.stock ?? "",
+        category_id: initialProduct.category_id || "",
+        price: initialProduct.price || "",
+        stock: initialProduct.stock || "",
         description: initialProduct.description || "",
         specs: initialProduct.specs || "",
         features: initialProduct.features || "",
-        manuals_url: initialProduct.manuals_url || "",
-        images_urls: Array.isArray(initialProduct.images_urls)
-          ? initialProduct.images_urls
-          : initialProduct.images_urls
-            ? [initialProduct.images_urls]
-            : [],
       });
     } else {
       setFormData(emptyForm);
     }
-
-    setError("");
-    setUploadingImages(false);
-    setUploadingManual(false);
   }, [initialProduct]);
 
   const handleChange = (e) => {
@@ -75,250 +51,183 @@ export default function ProductForm({
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const uploadFile = async (bucket, file, prefix) => {
-    const extension = file.name.split(".").pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
-    const filePath = `${prefix}/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      throw new Error(uploadError.message);
-    }
-
-    const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
-    return data.publicUrl;
-  };
-
-  const handleImagesChange = async (e) => {
+  const handleMediaChange = (e) => {
     const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
-    setUploadingImages(true);
-    setError("");
-
-    try {
-      const urls = await Promise.all(
-        files.map((file) => uploadFile("product-images", file, "products"))
-      );
-
-      setFormData((prev) => ({
-        ...prev,
-        images_urls: [...prev.images_urls, ...urls],
-      }));
-    } catch (err) {
-      setError(err.message || "Image upload failed.");
-    } finally {
-      setUploadingImages(false);
-    }
+    if (files.length > 0) setMediaFiles(files);
   };
 
-  const handleManualChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploadingManual(true);
+  const handleSaveProduct = async () => {
+    if (saving) return;
     setError("");
+    setSaving(true);
 
     try {
-      const url = await uploadFile("product-manuals", file, "manuals");
-      setFormData((prev) => ({ ...prev, manuals_url: url }));
+      if (!formData.name || !formData.brand) {
+        setError("Name and Brand are required");
+        setSaving(false);
+        return;
+      }
+
+      // 1️⃣ Insert product first
+      const { data: productData, error: productError } = await supabase
+        .from("products")
+        .insert([{
+          name: formData.name,
+          brand: formData.brand,
+          category_id: formData.category_id ? Number(formData.category_id) : null,
+          price: Number(formData.price || 0),
+          stock: Number(formData.stock || 0),
+          description: formData.description,
+          specs: formData.specs,
+          features: formData.features,
+        }])
+        .select()
+        .single();
+
+      if (productError) {
+        console.error(productError);
+        setError("Failed to save product");
+        setSaving(false);
+        return;
+      }
+
+      const productId = productData.id;
+
+      // 2️⃣ Upload media files sequentially
+      if (mediaFiles.length > 0) {
+        for (const file of mediaFiles) {
+          try {
+            const fileName = `${Date.now()}-${file.name}`;
+            const { error: uploadError } = await supabase.storage
+              .from("product-images")
+              .upload(fileName, file);
+
+            if (uploadError) {
+              console.error("Upload error:", uploadError);
+              continue; // skip failed file
+            }
+
+            const { data: publicData } = supabase.storage
+              .from("product-images")
+              .getPublicUrl(fileName);
+
+            const mediaType = file.type.startsWith("video") ? "video" : "image";
+
+            await supabase.from("product_media").insert([{
+              product_id: productId,
+              media_url: publicData.publicUrl,
+              media_type: mediaType,
+            }]);
+
+          } catch (fileErr) {
+            console.error("File upload error:", fileErr);
+          }
+        }
+      }
+
+      // 3️⃣ Refresh product list
+      if (fetchProducts) await fetchProducts();
+
+      alert("Product saved successfully!");
+      setFormData(emptyForm);
+      setMediaFiles([]);
+      if (onClose) onClose();
+
     } catch (err) {
-      setError(err.message || "Manual upload failed.");
+      console.error(err);
+      setError("Unexpected error during save");
     } finally {
-      setUploadingManual(false);
+      setSaving(false);
     }
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    if (!formData.name.trim() || !formData.brand.trim() || !formData.category_id) {
-      setError("Name, brand, and category are required.");
-      return;
-    }
-
-    if (uploadingImages || uploadingManual) {
-      setError("Please wait for uploads to finish.");
-      return;
-    }
-
-    onSave({
-      ...formData,
-      category_id: Number(formData.category_id),
-      price: Number(formData.price || 0),
-      stock: Number(formData.stock || 0),
-    });
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {error && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </p>
-      )}
+    <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+      {error && <p className="text-red-600">{error}</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-1">Product Name</label>
+          <label>Name</label>
           <input
             name="name"
             value={formData.name}
             onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="border w-full px-3 py-2 rounded"
           />
         </div>
-
         <div>
-          <label className="block text-sm font-medium mb-1">Brand</label>
+          <label>Brand</label>
           <input
             name="brand"
             value={formData.brand}
             onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="border w-full px-3 py-2 rounded"
           />
         </div>
-
         <div>
-          <label className="block text-sm font-medium mb-1">Category</label>
+          <label>Category</label>
           <select
             name="category_id"
             value={formData.category_id}
             onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="border w-full px-3 py-2 rounded"
           >
             <option value="">Select category</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-
         <div>
-          <label className="block text-sm font-medium mb-1">Price</label>
+          <label>Price</label>
           <input
             type="number"
-            min="0"
-            step="0.01"
             name="price"
             value={formData.price}
             onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="border w-full px-3 py-2 rounded"
           />
         </div>
-
         <div>
-          <label className="block text-sm font-medium mb-1">Stock</label>
+          <label>Stock</label>
           <input
             type="number"
-            min="0"
-            step="1"
             name="stock"
             value={formData.stock}
             onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+            className="border w-full px-3 py-2 rounded"
           />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium mb-1">Description</label>
-          <textarea
-            rows={4}
-            name="description"
-            value={formData.description}
-            onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 min-h-30"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium mb-1">Specifications</label>
-          <textarea
-            rows={4}
-            name="specs"
-            value={formData.specs}
-            onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 min-h-30"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium mb-1">Features</label>
-          <textarea
-            rows={4}
-            name="features"
-            value={formData.features}
-            onChange={handleChange}
-            className="w-full border rounded-lg px-3 py-2 min-h-30"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium mb-1">Manual Upload</label>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={handleManualChange}
-            className="w-full border rounded-lg px-3 py-2"
-          />
-          {uploadingManual && (
-            <p className="mt-2 text-xs text-slate-500">Uploading manual...</p>
-          )}
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium mb-1">Image Upload</label>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handleImagesChange}
-            className="w-full border rounded-lg px-3 py-2"
-          />
-          {uploadingImages && (
-            <p className="mt-2 text-xs text-slate-500">Uploading images...</p>
-          )}
         </div>
       </div>
 
-      {formData.images_urls.length > 0 && (
-        <div>
-          <p className="text-sm font-medium mb-2">Image Preview</p>
-          <div className="flex flex-wrap gap-2">
-            {formData.images_urls.map((url) => (
-              <img
-                key={url}
-                src={url}
-                alt="Preview"
-                className="h-20 w-20 rounded-lg border object-cover"
-              />
-            ))}
-          </div>
+      <div>
+        <label>Media (images/videos)</label>
+        <input type="file" multiple accept="image/*,video/*" onChange={handleMediaChange} />
+      </div>
+
+      {mediaFiles.length > 0 && (
+        <div className="flex gap-2 flex-wrap mt-2">
+          {mediaFiles.map((file, idx) => {
+            const url = URL.createObjectURL(file);
+            if (file.type.startsWith("video")) return <video key={idx} src={url} className="w-32" controls />;
+            return <img key={idx} src={url} className="w-32" />;
+          })}
         </div>
       )}
 
-      <div className="flex justify-end gap-3 mt-6">
+      <div className="flex gap-3 mt-4">
+        <button
+          type="button"
+          onClick={handleSaveProduct}
+          disabled={saving}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save Product"}
+        </button>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          className="border px-4 py-2 rounded hover:bg-gray-100"
         >
           Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={uploadingImages || uploadingManual}
-          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-        >
-          Save Product
         </button>
       </div>
     </form>

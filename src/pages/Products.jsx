@@ -10,6 +10,7 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -22,23 +23,30 @@ export default function Products() {
 
     const { data, error: fetchError } = await supabase
       .from("products")
-      .select("*")
-      .order("id", { ascending: false });
+      .select(
+        `
+        *,
+        product_media (*)
+      `
+      )
+      .order("created_at", { ascending: false });
 
     if (fetchError) {
+      console.error(fetchError);
       setError(fetchError.message);
       setLoading(false);
       return;
     }
 
-    const normalizedProducts = (data || []).map((item) => ({
-      ...item,
-      images_urls: Array.isArray(item.images_urls)
-        ? item.images_urls
-        : item.images_urls
-        ? [item.images_urls]
-        : [],
-    }));
+    const normalizedProducts = (data || []).map((item) => {
+      const media = Array.isArray(item.product_media) ? item.product_media : [];
+      const mediaUrls = media.map((entry) => entry.media_url).filter(Boolean);
+      return {
+        ...item,
+        product_media: media,
+        images_urls: mediaUrls.length > 0 ? mediaUrls : item.image_url ? [item.image_url] : [],
+      };
+    });
 
     setProducts(normalizedProducts);
     setLoading(false);
@@ -74,6 +82,17 @@ export default function Products() {
   };
 
   const addProduct = async (productData) => {
+    const imageUrl =
+      Array.isArray(productData.images_urls) && productData.images_urls.length > 0
+        ? productData.images_urls[0]
+        : productData.image_url || "";
+    const imagesValue = Array.isArray(productData.images_urls)
+      ? productData.images_urls
+      : productData.images_urls
+        ? [productData.images_urls]
+        : imageUrl
+          ? [imageUrl]
+          : [];
     const payload = {
       name: productData.name,
       brand: productData.brand,
@@ -84,22 +103,42 @@ export default function Products() {
       specs: productData.specs || "",
       features: productData.features || "",
       manuals_url: productData.manuals_url || "",
-      images_urls: productData.images_urls || [],
+      images_urls: imagesValue,
+      image_url: imageUrl,
     };
 
-    const { error: insertError } = await supabase.from("products").insert([payload]);
+    const { data, error: insertError } = await supabase
+      .from("products")
+      .insert([payload])
+      .select();
 
     if (insertError) {
+      console.error("Insert error:", insertError);
+      alert("Product save failed");
       setError(insertError.message);
-      return;
+      return false;
     }
 
+    console.log("Product inserted:", data);
+
     await fetchProducts();
+    return true;
   };
 
   const updateProduct = async (productData) => {
     if (!editingProduct) return;
 
+    const imageUrl =
+      Array.isArray(productData.images_urls) && productData.images_urls.length > 0
+        ? productData.images_urls[0]
+        : productData.image_url || "";
+    const imagesValue = Array.isArray(productData.images_urls)
+      ? productData.images_urls
+      : productData.images_urls
+        ? [productData.images_urls]
+        : imageUrl
+          ? [imageUrl]
+          : [];
     const payload = {
       name: productData.name,
       brand: productData.brand,
@@ -110,7 +149,8 @@ export default function Products() {
       specs: productData.specs || "",
       features: productData.features || "",
       manuals_url: productData.manuals_url || "",
-      images_urls: productData.images_urls || [],
+      images_urls: imagesValue,
+      image_url: imageUrl,
     };
 
     const { error: updateError } = await supabase
@@ -119,11 +159,13 @@ export default function Products() {
       .eq("id", editingProduct.id);
 
     if (updateError) {
+      console.error("Update error:", updateError);
       setError(updateError.message);
-      return;
+      return false;
     }
 
     await fetchProducts();
+    return true;
   };
 
   const deleteProduct = async (id) => {
@@ -140,15 +182,76 @@ export default function Products() {
     await fetchProducts();
   };
 
-  const handleSaveProduct = async (productData) => {
-    if (editingProduct) {
-      await updateProduct(productData);
-      setShowModal(false);
-      return;
-    }
+  const handleSaveProduct = async (productData, mediaFiles) => {
+    if (saving) return false;
 
-    await addProduct(productData);
-    setShowModal(false);
+    setSaving(true);
+    setError("");
+    console.log("Saving product...");
+    console.log("Media files:", mediaFiles);
+
+    try {
+      const { data: productDataResp, error: productError } = await supabase
+        .from("products")
+        .insert([
+          {
+            name: productData.name,
+            brand: productData.brand,
+            price: productData.price,
+            stock: productData.stock,
+          },
+        ])
+        .select()
+        .single();
+
+      if (productError) {
+        console.error(productError);
+        alert("Failed to create product");
+        setSaving(false);
+        return false;
+      }
+
+      const productId = productDataResp.id;
+
+      if (mediaFiles && mediaFiles.length > 0) {
+        for (const file of mediaFiles) {
+          const fileName = `${Date.now()}-${file.name}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from("product-images")
+            .upload(fileName, file);
+
+          if (uploadError) {
+            console.error("Upload error:", uploadError);
+            continue;
+          }
+
+          const { data } = supabase.storage
+            .from("product-images")
+            .getPublicUrl(fileName);
+
+          const mediaType = file.type.startsWith("video") ? "video" : "image";
+
+          await supabase.from("product_media").insert([
+            {
+              product_id: productId,
+              media_url: data.publicUrl,
+              media_type: mediaType,
+            },
+          ]);
+        }
+      }
+
+      alert("Product saved successfully");
+      await fetchProducts();
+      return true;
+    } catch (err) {
+      console.error("Save error:", err);
+      alert("Unexpected error while saving");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -206,6 +309,7 @@ export default function Products() {
               onSave={handleSaveProduct}
               initialProduct={editingProduct}
               categories={categories}
+              loading={saving}
             />
           </div>
         </div>
